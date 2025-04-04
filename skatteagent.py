@@ -28,6 +28,18 @@ VECTOR_STORE_ID = "vs_67d1e99c789c8191bd776ac5437cbc08"
 PROMPTS_DIR = "prompts"
 LOGS_DIR = "logs"  # Ny mappe til samtalelogfiler
 
+# Hardcoded struktur til svar
+HARDCODED_STRUCTURE = """Du er en skatterådgiver, der hjælper med at besvare spørgsmål om dansk skattelovgivning. 
+Du skal altid strukturere dine svar på følgende måde:
+
+Emne: [kort opsummering af brugerens spørgsmål]
+
+1. Angiver alle relevante lovgrundlag med specifikke paragraffer, som der bruges som kilde til svar
+2. Uddybende svar
+3. Forbehold
+
+Vær præcis og klar i dine formuleringer og fokuser på at give praktisk anvendelig rådgivning."""
+
 # Sørg for at nødvendige mapper eksisterer
 os.makedirs(PROMPTS_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR, exist_ok=True)
@@ -66,6 +78,9 @@ if 'saved_conversations' not in st.session_state:
     st.session_state.saved_conversations = []
 if 'is_loaded_conversation' not in st.session_state:
     st.session_state.is_loaded_conversation = False
+# Ny session state variabel til at styre om vi bruger hardcoded struktur
+if 'use_hardcoded_structure' not in st.session_state:
+    st.session_state.use_hardcoded_structure = True
 
 # Funktion til at få OpenAI client
 def get_openai_client():
@@ -105,7 +120,10 @@ def load_available_prompts():
 
 # Funktion til at generere den samlede system prompt
 def generate_system_instructions():
-    """Genererer system prompt baseret på den aktive prompt"""
+    """Genererer system prompt baseret på den aktive prompt eller bruger hardcoded struktur"""
+    if st.session_state.use_hardcoded_structure:
+        return HARDCODED_STRUCTURE
+    
     if not st.session_state.active_prompt or st.session_state.active_prompt not in st.session_state.system_prompts:
         return ""  # Ingen aktiv prompt
     
@@ -634,6 +652,10 @@ def delete_conversation(conversation_id):
 def main():
     st.title("Skatteretlig Assistant")
     
+    # Vis hardcoded struktur status
+    if st.session_state.use_hardcoded_structure:
+        st.info("Assistenten bruger fast svarsstruktur. Deaktiver dette i sidebaren hvis du ønsker standard svar.")
+    
     # Indlæs tilgængelige prompts
     if not st.session_state.system_prompts:
         st.session_state.system_prompts = load_available_prompts()
@@ -679,6 +701,19 @@ def main():
         st.header("Funktioner")
         enable_web = st.checkbox("Aktiver web browsing", value=st.session_state.enable_web_browsing)
         
+        # Ny checkbox til at styre om vi bruger hardcoded struktur
+        use_hardcoded = st.checkbox("Brug fast svarstruktur", value=st.session_state.use_hardcoded_structure)
+        
+        # Opdater hardcoded struktur indstilling hvis ændret
+        if use_hardcoded != st.session_state.use_hardcoded_structure:
+            st.session_state.use_hardcoded_structure = use_hardcoded
+            st.success(f"Fast svarstruktur {'aktiveret' if use_hardcoded else 'deaktiveret'}")
+            
+        # Vis hardcoded struktur hvis aktiveret
+        if st.session_state.use_hardcoded_structure:
+            with st.expander("Vis fast svarstruktur", expanded=False):
+                st.text_area("Svarstruktur", HARDCODED_STRUCTURE, disabled=True, height=250)
+                
         # Opdater web browsing indstilling hvis ændret
         if enable_web != st.session_state.enable_web_browsing:
             with st.spinner("Opdaterer assistent konfiguration..."):
@@ -699,447 +734,3 @@ def main():
                         st.session_state.enable_web_browsing = enable_web
                         st.success(f"Web browsing {'aktiveret' if enable_web else 'deaktiveret'}")
                         st.rerun()  # Genindlæs siden for at vise ændringerne
-    
-    # Opret to kolonner i layoutet
-    col1, col2 = st.columns([1, 2])
-    
-    # Venstre kolonne: Administration og tidligere samtaler
-    with col1:
-        # Vis faner for administration og logfiler
-        tab1, tab2 = st.tabs(["Administration", "Tidligere samtaler"])
-        
-        # Tab 1: Administration
-        with tab1:
-            st.header("Administration")
-            
-            st.info(f"Vector Store ID: {VECTOR_STORE_ID}")
-            
-            # Hent information om predefineret assistent
-            if not st.session_state.assistant_id:
-                with st.spinner("Henter assistent information..."):
-                    assistant = get_assistant_info(client, ASSISTANT_ID)
-                    if assistant:
-                        st.session_state.assistant_id = assistant.id
-                        st.success(f"Forbundet til assistent: {assistant.name}")
-                        
-                        # Opret også en thread
-                        thread = create_thread(client)
-                        if thread:
-                            st.session_state.thread_id = thread.id
-                            st.success(f"Thread oprettet med ID: {thread.id}")
-                    else:
-                        st.error(f"Kunne ikke hente assistent med ID: {ASSISTANT_ID}")
-                        st.info("Kontroller at assistent-ID'et er korrekt og at din API-nøgle har adgang.")
-            
-            # Viser ID'er hvis assistenten er aktiv
-            if st.session_state.assistant_id:
-                with st.expander("Assistant og Thread information", expanded=True):
-                    assistant_info = get_assistant_info(client, st.session_state.assistant_id)
-                    if assistant_info:
-                        st.write(f"**Assistant navn:** {assistant_info.name}")
-                        st.write(f"**Model:** {assistant_info.model}")
-                        st.write(f"**Assistant ID:** {assistant_info.id}")
-                        st.write(f"**Thread ID:** {st.session_state.thread_id or 'Ikke oprettet'}")
-                        st.write(f"**Vector Store ID:** {VECTOR_STORE_ID}")
-                        
-                        # Vis tools og konfiguration
-                        if hasattr(assistant_info, 'tools') and assistant_info.tools:
-                            st.write("**Aktiverede værktøjer:**")
-                            for tool in assistant_info.tools:
-                                st.write(f"- {tool.type}")
-                        
-                        # Vis instructions hvis tilgængelige
-                        if hasattr(assistant_info, 'instructions') and assistant_info.instructions:
-                            st.markdown("**Assistent instruktioner:**")
-                            st.markdown(f"```\n{assistant_info.instructions}\n```")
-                    else:
-                        st.write(f"**Assistant ID:** {st.session_state.assistant_id}")
-                        st.write(f"**Thread ID:** {st.session_state.thread_id or 'Ikke oprettet'}")
-                
-                # Nulstil samtale
-                with st.expander("Nulstil samtale"):
-                    if st.button("Start ny samtale"):
-                        # Gem den aktuelle samtale hvis der er beskeder
-                        if st.session_state.messages:
-                            # Generer en titel til samtalen hvis der ikke allerede er en
-                            if not st.session_state.conversation_title and len(st.session_state.messages) > 1:
-                                with st.spinner("Genererer samtale-titel..."):
-                                    title = generate_conversation_title(client, st.session_state.messages)
-                                    st.session_state.conversation_title = title
-                            
-                            # Gem samtalen
-                            with st.spinner("Gemmer den aktuelle samtale..."):
-                                save_conversation(
-                                    st.session_state.messages, 
-                                    st.session_state.conversation_title,
-                                    st.session_state.active_prompt
-                                )
-                                # Opdater listen over gemte samtaler
-                                st.session_state.saved_conversations = load_all_conversations()
-                        
-                        # Opret ny thread
-                        thread = create_thread(client)
-                        if thread:
-                            st.session_state.thread_id = thread.id
-                            st.session_state.messages = []
-                            st.session_state.log_id = None
-                            st.session_state.conversation_title = None
-                            st.session_state.is_loaded_conversation = False
-                            st.success("Ny samtale startet")
-                            st.rerun()
-            
-            # Vis prompt-liste
-            st.header("Prompts")
-            
-            if not st.session_state.system_prompts:
-                st.info("Ingen prompts fundet i 'prompts' mappen.")
-            else:
-                # Lav en liste med prompt-navne
-                prompt_options = [(prompt_id, prompt_data.get('title', prompt_id)) 
-                                for prompt_id, prompt_data in st.session_state.system_prompts.items()]
-                
-                # Tilføj "Ingen prompt" mulighed
-                prompt_options.insert(0, (None, "Ingen prompt"))
-                
-                # Sorter alfabetisk efter titel (men behold "Ingen prompt" øverst)
-                prompt_options[1:] = sorted(prompt_options[1:], key=lambda x: x[1])
-                
-                # Opret en radio-knap for hver prompt
-                selected_option = st.radio(
-                    "Vælg en prompt til assistenten:",
-                    options=[prompt_id for prompt_id, _ in prompt_options],
-                    format_func=lambda x: next((title for pid, title in prompt_options if pid == x), "Ingen prompt"),
-                    index=0 if st.session_state.active_prompt is None else 
-                        next((i for i, (pid, _) in enumerate(prompt_options) if pid == st.session_state.active_prompt), 0)
-                )
-                
-                # Opdater den aktive prompt
-                if selected_option != st.session_state.active_prompt:
-                    st.session_state.active_prompt = selected_option
-                    
-                    # Hvis en prompt er valgt, vis dens indhold
-                    if selected_option:
-                        with st.expander("Vis prompt indhold", expanded=False):
-                            prompt_data = st.session_state.system_prompts[selected_option]
-                            prompt_content = prompt_data.get('content', 'Intet indhold')
-                            st.text_area("Prompt indhold", prompt_content, disabled=True, height=250)
-            
-        # Tab 2: Tidligere samtaler
-        with tab2:
-            st.header("Gemte samtaler")
-            
-            # Genindlæs listen over gemte samtaler
-            if st.button("Opdater liste"):
-                st.session_state.saved_conversations = load_all_conversations()
-                st.success("Listen over gemte samtaler er opdateret")
-            
-            # Vis liste over gemte samtaler
-            if not st.session_state.saved_conversations:
-                st.info("Ingen gemte samtaler fundet.")
-            else:
-                st.write(f"Fandt {len(st.session_state.saved_conversations)} gemte samtaler:")
-                
-                # Opret en container til at vise samtalerne
-                saved_chat_container = st.container()
-                with saved_chat_container:
-                    # Vis hver samtale
-                    for idx, conversation in enumerate(st.session_state.saved_conversations):
-                        with st.expander(f"{conversation['title']} ({conversation['display_date']})"):
-                            st.write(f"**Dato:** {conversation['display_date']}")
-                            st.write(f"**Antal beskeder:** {conversation['message_count']}")
-                            
-                            col_conv1, col_conv2 = st.columns([3, 1])
-                            with col_conv1:
-                                # Knap til at indlæse samtalen
-                                if st.button("Indlæs samtale", key=f"load_{idx}", 
-                                             use_container_width=True):
-                                    with st.spinner("Indlæser samtale..."):
-                                        # Indlæs samtaledata
-                                        conv_data = load_conversation(conversation["id"])
-                                        
-                                        if conv_data:
-                                            # Gem den aktuelle samtale hvis der er beskeder og ikke en indlæst samtale
-                                            if (st.session_state.messages and 
-                                                not st.session_state.is_loaded_conversation and
-                                                st.session_state.log_id != conv_data["id"]):
-                                                
-                                                # Spørg om at gemme den aktuelle samtale
-                                                if st.session_state.messages:
-                                                    # Generer en titel til samtalen hvis der ikke allerede er en
-                                                    if not st.session_state.conversation_title:
-                                                        title = generate_conversation_title(
-                                                            client, 
-                                                            st.session_state.messages
-                                                        )
-                                                        st.session_state.conversation_title = title
-                                                    
-                                                    # Gem samtalen
-                                                    save_conversation(
-                                                        st.session_state.messages, 
-                                                        st.session_state.conversation_title,
-                                                        st.session_state.active_prompt
-                                                    )
-                                            
-                                            # Indlæs den valgte samtale
-                                            st.session_state.messages = conv_data["messages"]
-                                            st.session_state.log_id = conv_data["id"]
-                                            st.session_state.conversation_title = conv_data["title"]
-                                            st.session_state.is_loaded_conversation = True
-                                            
-                                            # Indlæs også token-tæller hvis tilgængelig
-                                            if "token_count" in conv_data:
-                                                st.session_state.token_count = conv_data["token_count"]
-                                            
-                                            # Indlæs prompt hvis tilgængelig
-                                            if "prompt_id" in conv_data and conv_data["prompt_id"]:
-                                                st.session_state.active_prompt = conv_data["prompt_id"]
-                                            
-                                            st.success(f"Samtale '{conv_data['title']}' indlæst")
-                                            st.rerun()
-                            
-                            with col_conv2:
-                                # Knap til at slette samtalen
-                                if st.button("Slet", key=f"delete_{idx}", use_container_width=True):
-                                    if delete_conversation(conversation["id"]):
-                                        st.session_state.saved_conversations = load_all_conversations()
-                                        st.success("Samtale slettet")
-                                        st.rerun()
-            
-            # Knap til at gemme den aktuelle samtale
-            if st.session_state.messages:
-                st.header("Gem aktuel samtale")
-                
-                # Vis nuværende titel hvis tilgængelig
-                if st.session_state.conversation_title:
-                    st.write(f"Aktuel titel: **{st.session_state.conversation_title}**")
-                
-                # Indtast en alternativ titel
-                custom_title = st.text_input(
-                    "Indtast en titel til samtalen (valgfrit):",
-                    value=st.session_state.conversation_title or ""
-                )
-                
-                if st.button("Gem samtalen nu", use_container_width=True):
-                    with st.spinner("Gemmer samtalen..."):
-                        # Brug custom_title hvis indtastet, ellers generer en titel
-                        title_to_use = custom_title
-                        if not title_to_use:
-                            title_to_use = generate_conversation_title(client, st.session_state.messages)
-                            
-                        # Opdater titlen i session state
-                        st.session_state.conversation_title = title_to_use
-                        
-                        # Gem samtalen
-                        file_path = save_conversation(
-                            st.session_state.messages, 
-                            title_to_use,
-                            st.session_state.active_prompt
-                        )
-                        
-                        if file_path:
-                            # Opdater listen over gemte samtaler
-                            st.session_state.saved_conversations = load_all_conversations()
-                            st.success(f"Samtale gemt som '{title_to_use}'")
-                            st.rerun()
-    
-    # Højre kolonne: Chat
-    with col2:
-        st.header("Skatteret Rådgivning")
-        
-        # Først tjek om vi er forbundet til assistenten
-        if not st.session_state.assistant_id:
-            st.warning("Venter på forbindelse til assistenten...")
-        else:
-            # Vis velkomstbesked hvis ingen beskeder findes
-            if not st.session_state.messages:
-                assistant_info = get_assistant_info(client, st.session_state.assistant_id)
-                if assistant_info and hasattr(assistant_info, 'name'):
-                    st.info(f"Velkommen til {assistant_info.name}. Stil dit spørgsmål om skattelovgivning nedenfor.")
-                else:
-                    st.info("Velkommen til Skatteret Assistant. Stil dit spørgsmål om skattelovgivning nedenfor.")
-            
-            # Vis om dette er en indlæst samtale
-            if st.session_state.is_loaded_conversation:
-                st.success(f"Du arbejder med en indlæst samtale: '{st.session_state.conversation_title}'")
-            
-            # Vis chathistorik
-            chat_container = st.container(height=400)
-            with chat_container:
-                # Vis eksisterende beskeder
-                for message in st.session_state.messages:
-                    if message["role"] == "user":
-                        st.chat_message("user").write(message["content"])
-                    else:
-                        st.chat_message("assistant").write(message["content"])
-            
-            # Input felt til nye spørgsmål
-            if st.session_state.thread_id:
-                # Lav en chat input
-                prompt = st.chat_input("Stil et spørgsmål om skatteret...")
-                
-                if prompt:
-                    # Vis brugerens spørgsmål
-                    st.chat_message("user").write(prompt)
-                    
-                    # Gem brugerens besked
-                    st.session_state.messages.append({"role": "user", "content": prompt})
-                    
-                    # Tilføj besked til thread
-                    with st.spinner("Sender dit spørgsmål..."):
-                        message = add_message_to_thread(client, 
-                                                     st.session_state.thread_id, 
-                                                     prompt)
-                    
-                    # Kør assistenten
-                    with st.spinner("Assistenten behandler dit spørgsmål..."):
-                        run = run_assistant(client, 
-                                         st.session_state.thread_id, 
-                                         st.session_state.assistant_id)
-                        
-                        if run:
-                            st.session_state.run_id = run.id
-                            
-                            # Vent på at kørslen er færdig
-                            while True:
-                                run_status = get_run_status(client, 
-                                                         st.session_state.thread_id, 
-                                                         st.session_state.run_id)
-                                
-                                # Vis status for web-søgning hvis det er aktiveret
-                                if st.session_state.enable_web_browsing and run_status.status == "in_progress":
-                                    # Tjek status på tool calls
-                                    if hasattr(run_status, 'required_action') and run_status.required_action:
-                                        if run_status.required_action.type == "submit_tool_outputs":
-                                            for tool_call in run_status.required_action.submit_tool_outputs.tool_calls:
-                                                if tool_call.type == "web_browsing" or "web" in tool_call.type.lower():
-                                                    # Vis info om web søgning
-                                                    st.info(f"🌐 Assistenten søger på nettet for information...")
-                                
-                                if run_status.status == "completed":
-                                    # Forsøg at hente token-brug
-                                    try:
-                                        # Hent den fulde run-status for at sikre alle attributter
-                                        complete_run = client.beta.threads.runs.retrieve(
-                                            thread_id=st.session_state.thread_id,
-                                            run_id=st.session_state.run_id
-                                        )
-                                        
-                                        # Prøv at hente token-brug - tjek om API'et understøtter usage
-                                        try:
-                                            # Tjek om dette API er tilgængeligt
-                                            has_usage_api = (hasattr(client.beta.threads.runs, 'usage') and 
-                                                           callable(getattr(client.beta.threads.runs.usage, 'list')))
-                                            
-                                            if has_usage_api:
-                                                usage_response = client.beta.threads.runs.usage.list(
-                                                    thread_id=st.session_state.thread_id,
-                                                    run_id=st.session_state.run_id
-                                                )
-                                                logger.info(f"Usage response: {usage_response}")
-                                                
-                                                # Behandle usage_response hvis data er tilgængelig
-                                                if hasattr(usage_response, 'data') and usage_response.data:
-                                                    for usage_item in usage_response.data:
-                                                        if hasattr(usage_item, 'prompt_tokens'):
-                                                            st.session_state.token_count["input"] += usage_item.prompt_tokens
-                                                        if hasattr(usage_item, 'completion_tokens'):
-                                                            st.session_state.token_count["output"] += usage_item.completion_tokens
-                                                    
-                                                    st.session_state.token_count["total"] = (
-                                                        st.session_state.token_count["input"] + 
-                                                        st.session_state.token_count["output"]
-                                                    )
-                                        except Exception as usage_error:
-                                            logger.error(f"Fejl ved hentning af usage: {usage_error}")
-                                            # Fortsæt med at bruge complete_run hvis usage API fejler
-                                            update_token_count(complete_run)
-                                            
-                                        # Hvis vi ikke fik opdateret token-tælleren fra usage API
-                                        if "total" not in st.session_state.token_count or st.session_state.token_count["total"] == 0:
-                                            update_token_count(complete_run)
-                                        
-                                    except Exception as e:
-                                        logger.error(f"Kunne ikke hente token information: {e}")
-                                        st.warning("Kunne ikke opdatere token-tæller for denne forespørgsel")
-                                    break
-                                elif run_status.status == "requires_action":
-                                    # Håndter tool calls, herunder web_browsing
-                                    if hasattr(run_status, 'required_action') and run_status.required_action:
-                                        if run_status.required_action.type == "submit_tool_outputs":
-                                            # Behandl web browsing eller andre tool outputs her
-                                            st.info("Assistenten udfører handlinger...")
-                                            
-                                            # Automatisk handling for tool outputs
-                                            tool_outputs = []
-                                            for tool_call in run_status.required_action.submit_tool_outputs.tool_calls:
-                                                # For web browsing behøver vi ikke at gøre noget, OpenAI håndterer det
-                                                tool_outputs.append({
-                                                    "tool_call_id": tool_call.id,
-                                                    "output": "Forespørgsel behandlet automatisk"
-                                                })
-                                            
-                                            # Submit tool outputs
-                                            client.beta.threads.runs.submit_tool_outputs(
-                                                thread_id=st.session_state.thread_id,
-                                                run_id=st.session_state.run_id,
-                                                tool_outputs=tool_outputs
-                                            )
-                                elif run_status.status in ["failed", "cancelled", "expired"]:
-                                    st.error(f"Fejl ved kørsel: {run_status.status}")
-                                    if hasattr(run_status, 'last_error'):
-                                        st.error(f"Fejldetaljer: {run_status.last_error}")
-                                    break
-                                
-                                # Vent lidt før næste check
-                                time.sleep(1)
-                    
-                    # Hent svar
-                    with st.spinner("Henter svar..."):
-                        messages = get_messages(client, st.session_state.thread_id)
-                        
-                        if messages and messages.data:
-                            # Nyeste besked først
-                            latest_message = messages.data[0]
-                            
-                            if latest_message.role == "assistant":
-                                # Vis assistentens svar
-                                content = latest_message.content[0].text.value
-                                st.chat_message("assistant").write(content)
-                                
-                                # Gem assistentens besked
-                                st.session_state.messages.append({"role": "assistant", "content": content})
-                                
-                                # Vis citations hvis de findes
-                                if hasattr(latest_message, "annotations") and latest_message.annotations:
-                                    st.info("Dette svar indeholder citations fra dokumenter i Vector Store og/eller filbilag.")
-                                
-                                # Hvis dette er første svar i samtalen, generer en titel
-                                if len(st.session_state.messages) == 2 and not st.session_state.conversation_title:
-                                    with st.spinner("Genererer samtale-titel..."):
-                                        title = generate_conversation_title(client, st.session_state.messages)
-                                        st.session_state.conversation_title = title
-                                        st.success(f"Samtale navngivet: {title}")
-                                
-                                # Autogem samtalen efter hver udveksling hvis den ikke allerede er gemt
-                                if st.session_state.log_id is None:
-                                    with st.spinner("Gemmer samtalen automatisk..."):
-                                        save_conversation(
-                                            st.session_state.messages, 
-                                            st.session_state.conversation_title,
-                                            st.session_state.active_prompt
-                                        )
-                                        # Opdater listen over gemte samtaler
-                                        st.session_state.saved_conversations = load_all_conversations()
-                                else:
-                                    # Opdater den eksisterende samtale-fil
-                                    with st.spinner("Opdaterer gemt samtale..."):
-                                        save_conversation(
-                                            st.session_state.messages, 
-                                            st.session_state.conversation_title,
-                                            st.session_state.active_prompt
-                                        )
-            else:
-                st.warning("Venter på oprettelse af samtale-tråd...")
-
-if __name__ == "__main__":
-    main()
